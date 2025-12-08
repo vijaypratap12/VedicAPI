@@ -1,0 +1,8 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/VedicAPI.API/.config
+/VedicAPI.API/bin/Release/net8.0
+/VedicAPI.API/obj/Release/net8.0

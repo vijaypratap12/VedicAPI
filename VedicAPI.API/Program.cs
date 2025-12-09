@@ -54,6 +54,8 @@ builder.Services.AddScoped<IBookChapterRepository, BookChapterRepository>();
 builder.Services.AddScoped<ITextbookRepository, TextbookRepository>();
 builder.Services.AddScoped<ITextbookChapterRepository, TextbookChapterRepository>();
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
+builder.Services.AddScoped<IResearchPaperRepository, ResearchPaperRepository>();
+builder.Services.AddScoped<IThesisRepository, ThesisRepository>();
 
 // Register services
 builder.Services.AddScoped<IBookService, BookService>();
@@ -61,6 +63,8 @@ builder.Services.AddScoped<IBookChapterService, BookChapterService>();
 builder.Services.AddScoped<ITextbookService, TextbookService>();
 builder.Services.AddScoped<ITextbookChapterService, TextbookChapterService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IResearchPaperService, ResearchPaperService>();
+builder.Services.AddScoped<IThesisService, ThesisService>();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>

@@ -1,0 +1,35 @@
+namespace VedicAPI.API.Models
+{
+    /// <summary>
+    /// Research Paper domain model
+    /// </summary>
+    public class ResearchPaper
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Authors { get; set; } = string.Empty; // Comma-separated
+        public string Institution { get; set; } = string.Empty;
+        public int Year { get; set; }
+        public string Category { get; set; } = string.Empty;
+        public string Abstract { get; set; } = string.Empty;
+        public string? ContentHtml { get; set; }
+        public string? Keywords { get; set; } // Comma-separated
+        public int Pages { get; set; }
+        public int DownloadCount { get; set; }
+        public int ViewCount { get; set; }
+        public decimal Rating { get; set; }
+        public string Status { get; set; } = "published";
+        public string? DOI { get; set; }
+        public string? JournalName { get; set; }
+        public string? Volume { get; set; }
+        public string? IssueNumber { get; set; }
+        public DateTime? PublicationDate { get; set; }
+        public string? PdfUrl { get; set; }
+        public string? CoverImageUrl { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public bool IsActive { get; set; }
+        public bool IsFeatured { get; set; }
+    }
+}
+

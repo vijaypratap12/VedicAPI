@@ -6,3 +6,5 @@
 /VedicAPI.API/.config
 /VedicAPI.API/bin/Release/net8.0
 /VedicAPI.API/obj/Release/net8.0
+/VedicAPI.API/obj
+/VedicAPI.API/Properties/PublishProfiles/vedicapi - Zip Deploy2.pubxml.user

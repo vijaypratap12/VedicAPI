@@ -82,7 +82,7 @@ namespace VedicAPI.API.Services
                 Summary = chapterDto.Summary,
                 WordCount = chapterDto.WordCount,
                 ReadingTimeMinutes = chapterDto.ReadingTimeMinutes,
-                DisplayOrder = chapterDto.DisplayOrder,
+                DisplayOrder = chapterDto.DisplayOrder ?? chapterDto.ChapterNumber, // Default to chapter number if not provided
                 CreatedAt = DateTime.UtcNow,
                 IsActive = true
             };

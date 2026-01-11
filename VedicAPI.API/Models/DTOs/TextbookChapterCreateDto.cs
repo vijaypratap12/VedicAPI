@@ -30,9 +30,8 @@ namespace VedicAPI.API.Models.DTOs
         [Range(0, int.MaxValue, ErrorMessage = "Reading time must be non-negative")]
         public int? ReadingTimeMinutes { get; set; }
 
-        [Required(ErrorMessage = "Display order is required")]
         [Range(0, int.MaxValue, ErrorMessage = "Display order must be non-negative")]
-        public int DisplayOrder { get; set; }
+        public int? DisplayOrder { get; set; }
     }
 }
 

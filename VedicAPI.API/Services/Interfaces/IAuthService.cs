@@ -36,5 +36,20 @@ public interface IAuthService
     /// Verify if email is available
     /// </summary>
     Task<bool> IsEmailAvailableAsync(string email);
+    
+    /// <summary>
+    /// Request password reset OTP
+    /// </summary>
+    Task<ForgotPasswordResponseDto> ForgotPasswordAsync(ForgotPasswordRequestDto request);
+    
+    /// <summary>
+    /// Verify OTP for password reset
+    /// </summary>
+    Task<bool> VerifyOTPAsync(VerifyOTPRequestDto request);
+    
+    /// <summary>
+    /// Reset password using OTP
+    /// </summary>
+    Task<bool> ResetPasswordAsync(ResetPasswordRequestDto request);
 }
 

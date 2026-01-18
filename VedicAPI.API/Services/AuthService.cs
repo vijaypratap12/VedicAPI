@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using VedicAPI.API.Models;
 using VedicAPI.API.Models.DTOs.Auth;
+using VedicAPI.API.Models.Enums;
 using VedicAPI.API.Repositories.Interfaces;
 using VedicAPI.API.Services.Interfaces;
 
@@ -254,6 +255,123 @@ public class AuthService : IAuthService
         return !exists;
     }
 
+    /// <inheritdoc/>
+    public async Task<ForgotPasswordResponseDto> ForgotPasswordAsync(ForgotPasswordRequestDto request)
+    {
+        try
+        {
+            // Check if user exists
+            var user = await _authRepository.GetUserByEmailAsync(request.Email);
+            if (user == null)
+            {
+                throw new InvalidOperationException("User with this email does not exist");
+            }
+
+            // Generate OTP
+            var otpLength = _configuration.GetValue<int>("OTPSettings:OTPLength", 6);
+            var otp = GenerateOTP(otpLength);
+
+            // Calculate expiry
+            var expiryMinutes = _configuration.GetValue<int>("OTPSettings:OTPExpiryMinutes", 10);
+            var expiry = DateTime.UtcNow.AddMinutes(expiryMinutes);
+
+            // Create OTP record
+            await _authRepository.CreateUserOTPAsync(
+                user.Id,
+                request.Email,
+                otp,
+                OTPType.PasswordReset,
+                expiry
+            );
+
+            _logger.LogInformation("Password reset OTP generated for user: {Email}", request.Email);
+
+            return new ForgotPasswordResponseDto
+            {
+                Otp = otp,
+                ExpiresAt = expiry,
+                Message = "OTP has been generated successfully"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating password reset OTP for email: {Email}", request.Email);
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> VerifyOTPAsync(VerifyOTPRequestDto request)
+    {
+        try
+        {
+            var userOTP = await _authRepository.VerifyUserOTPAsync(
+                request.Email,
+                request.Otp,
+                OTPType.PasswordReset
+            );
+
+            if (userOTP == null)
+            {
+                _logger.LogWarning("Invalid or expired OTP verification attempt for email: {Email}", request.Email);
+                return false;
+            }
+
+            _logger.LogInformation("OTP verified successfully for email: {Email}", request.Email);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error verifying OTP for email: {Email}", request.Email);
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> ResetPasswordAsync(ResetPasswordRequestDto request)
+    {
+        try
+        {
+            // Verify OTP again
+            var userOTP = await _authRepository.VerifyUserOTPAsync(
+                request.Email,
+                request.Otp,
+                OTPType.PasswordReset
+            );
+
+            if (userOTP == null || userOTP.User == null)
+            {
+                throw new InvalidOperationException("Invalid or expired OTP");
+            }
+
+            // Hash new password
+            var passwordHash = HashPassword(request.NewPassword);
+
+            // Reset password with OTP verification
+            var success = await _authRepository.ResetPasswordWithOTPAsync(
+                request.Email,
+                request.Otp,
+                passwordHash
+            );
+
+            if (success)
+            {
+                _logger.LogInformation("Password reset successfully for user: {Email}", request.Email);
+            }
+            else
+            {
+                _logger.LogWarning("Password reset failed for email: {Email}", request.Email);
+            }
+
+            return success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting password for email: {Email}", request.Email);
+            throw;
+        }
+    }
+
     #region Private Helper Methods
 
     private string GenerateAccessToken(User user)
@@ -335,6 +453,19 @@ public class AuthService : IAuthService
     private bool VerifyPassword(string password, string passwordHash)
     {
         return BCrypt.Net.BCrypt.Verify(password, passwordHash);
+    }
+
+    private string GenerateOTP(int length)
+    {
+        var random = new Random();
+        var otp = string.Empty;
+        
+        for (int i = 0; i < length; i++)
+        {
+            otp += random.Next(0, 10).ToString();
+        }
+        
+        return otp;
     }
 
     #endregion

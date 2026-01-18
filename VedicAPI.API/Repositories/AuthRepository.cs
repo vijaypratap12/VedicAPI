@@ -141,5 +141,118 @@ public class AuthRepository : IAuthRepository
 
         return count > 0;
     }
+
+    /// <inheritdoc/>
+    public async Task<UserOTP> CreateUserOTPAsync(int? userId, string email, string otp, string otpType, DateTime expiry)
+    {
+        using var connection = CreateConnection();
+        
+        var userOTP = await connection.QuerySingleAsync<UserOTP>(
+            "sp_CreateUserOTP",
+            new
+            {
+                UserId = userId,
+                Email = email,
+                OTP = otp,
+                OTPType = otpType,
+                OTPExpiry = expiry
+            },
+            commandType: CommandType.StoredProcedure
+        );
+
+        return userOTP;
+    }
+
+    /// <inheritdoc/>
+    public async Task<UserOTP?> VerifyUserOTPAsync(string email, string otp, string otpType)
+    {
+        using var connection = CreateConnection();
+        
+        var result = await connection.QueryFirstOrDefaultAsync<dynamic>(
+            "sp_VerifyUserOTP",
+            new
+            {
+                Email = email,
+                OTP = otp,
+                OTPType = otpType
+            },
+            commandType: CommandType.StoredProcedure
+        );
+
+        if (result == null)
+            return null;
+
+        // Map the result to UserOTP using dynamic property access
+        var userOTP = new UserOTP
+        {
+            Id = (int)result.Id,
+            UserId = result.UserId != null ? (int?)result.UserId : null,
+            Email = (string)result.Email,
+            OTP = (string)result.OTP,
+            OTPType = (string)result.OTPType,
+            OTPExpiry = (DateTime)result.OTPExpiry,
+            IsUsed = (bool)result.IsUsed,
+            RequestedAt = (DateTime)result.RequestedAt,
+            CreatedAt = (DateTime)result.CreatedAt,
+            UpdatedAt = (DateTime)result.UpdatedAt
+        };
+
+        // If UserId exists, map User info
+        if (result.User_Id != null)
+        {
+            userOTP.User = new User
+            {
+                Id = (int)result.User_Id,
+                Name = (string)result.User_Name,
+                Email = (string)result.User_Email,
+                PasswordHash = (string)result.User_PasswordHash,
+                CreatedAt = (DateTime)result.User_CreatedAt,
+                LastLoginAt = result.User_LastLoginAt != null ? (DateTime?)result.User_LastLoginAt : null,
+                IsActive = (bool)result.User_IsActive,
+                ProfileImageUrl = result.User_ProfileImageUrl != null ? (string?)result.User_ProfileImageUrl : null
+            };
+        }
+
+        return userOTP;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> ResetPasswordWithOTPAsync(string email, string otp, string newPasswordHash)
+    {
+        using var connection = CreateConnection();
+        
+        try
+        {
+            var result = await connection.QueryFirstOrDefaultAsync<int>(
+                "sp_ResetPasswordWithOTP",
+                new
+                {
+                    Email = email,
+                    OTP = otp,
+                    NewPasswordHash = newPasswordHash
+                },
+                commandType: CommandType.StoredProcedure
+            );
+
+            return result == 1;
+        }
+        catch (SqlException ex) when (ex.Message.Contains("Invalid or expired OTP"))
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> ClearExpiredUserOTPsAsync()
+    {
+        using var connection = CreateConnection();
+        
+        var deletedCount = await connection.ExecuteScalarAsync<int>(
+            "sp_ClearExpiredUserOTPs",
+            commandType: CommandType.StoredProcedure
+        );
+
+        return deletedCount;
+    }
 }
 

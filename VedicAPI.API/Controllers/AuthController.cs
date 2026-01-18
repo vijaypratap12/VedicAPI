@@ -221,5 +221,112 @@ public class AuthController : ControllerBase
             return StatusCode(500, ApiResponse<bool>.ErrorResponse("An error occurred while checking email"));
         }
     }
+
+    /// <summary>
+    /// Request password reset OTP
+    /// </summary>
+    /// <param name="request">Forgot password request data</param>
+    /// <returns>OTP response</returns>
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(typeof(ApiResponse<ForgotPasswordResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ForgotPasswordResponseDto>>> ForgotPassword([FromBody] ForgotPasswordRequestDto request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResponse("Invalid input data"));
+            }
+
+            var result = await _authService.ForgotPasswordAsync(request);
+            
+            return Ok(ApiResponse<ForgotPasswordResponseDto>.SuccessResponse(result, "OTP generated successfully"));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Forgot password failed for email: {Email}", request.Email);
+            return NotFound(ApiResponse<object>.ErrorResponse(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during forgot password for email: {Email}", request.Email);
+            return StatusCode(500, ApiResponse<object>.ErrorResponse("An error occurred while generating OTP"));
+        }
+    }
+
+    /// <summary>
+    /// Verify OTP for password reset
+    /// </summary>
+    /// <param name="request">OTP verification request data</param>
+    /// <returns>Verification result</returns>
+    [HttpPost("verify-otp")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<object>>> VerifyOTP([FromBody] VerifyOTPRequestDto request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResponse("Invalid input data"));
+            }
+
+            var isValid = await _authService.VerifyOTPAsync(request);
+            
+            if (!isValid)
+            {
+                return Unauthorized(ApiResponse<object>.ErrorResponse("Invalid or expired OTP"));
+            }
+            
+            return Ok(ApiResponse<object>.SuccessResponse(new object(), "OTP verified successfully"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during OTP verification for email: {Email}", request.Email);
+            return StatusCode(500, ApiResponse<object>.ErrorResponse("An error occurred while verifying OTP"));
+        }
+    }
+
+    /// <summary>
+    /// Reset password using OTP
+    /// </summary>
+    /// <param name="request">Password reset request data</param>
+    /// <returns>Reset result</returns>
+    [HttpPost("reset-password")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<object>>> ResetPassword([FromBody] ResetPasswordRequestDto request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResponse("Invalid input data"));
+            }
+
+            var success = await _authService.ResetPasswordAsync(request);
+            
+            if (!success)
+            {
+                return Unauthorized(ApiResponse<object>.ErrorResponse("Invalid or expired OTP"));
+            }
+            
+            return Ok(ApiResponse<object>.SuccessResponse(new object(), "Password reset successfully"));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Password reset failed for email: {Email}", request.Email);
+            return Unauthorized(ApiResponse<object>.ErrorResponse(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during password reset for email: {Email}", request.Email);
+            return StatusCode(500, ApiResponse<object>.ErrorResponse("An error occurred while resetting password"));
+        }
+    }
 }
 

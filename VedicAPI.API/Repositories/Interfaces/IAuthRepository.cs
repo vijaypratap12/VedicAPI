@@ -46,5 +46,25 @@ public interface IAuthRepository
     /// Check if email already exists
     /// </summary>
     Task<bool> EmailExistsAsync(string email);
+    
+    /// <summary>
+    /// Create a new OTP record
+    /// </summary>
+    Task<UserOTP> CreateUserOTPAsync(int? userId, string email, string otp, string otpType, DateTime expiry);
+    
+    /// <summary>
+    /// Verify OTP (for verification step)
+    /// </summary>
+    Task<UserOTP?> VerifyUserOTPAsync(string email, string otp, string otpType);
+    
+    /// <summary>
+    /// Reset password with OTP verification (verifies OTP again, resets password, marks OTP as used)
+    /// </summary>
+    Task<bool> ResetPasswordWithOTPAsync(string email, string otp, string newPasswordHash);
+    
+    /// <summary>
+    /// Clear expired OTPs (maintenance)
+    /// </summary>
+    Task<int> ClearExpiredUserOTPsAsync();
 }
 

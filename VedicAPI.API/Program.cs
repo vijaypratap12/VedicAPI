@@ -59,6 +59,14 @@ builder.Services.AddScoped<IThesisRepository, ThesisRepository>();
 builder.Services.AddScoped<IContactRepository, ContactRepository>();
 builder.Services.AddScoped<INewsletterRepository, NewsletterRepository>();
 
+// Treatment System Repositories
+builder.Services.AddScoped<IPatientRepository, PatientRepository>();
+builder.Services.AddScoped<IPrakritiRepository, PrakritiRepository>();
+builder.Services.AddScoped<IConditionRepository, ConditionRepository>();
+builder.Services.AddScoped<IHerbalMedicineRepository, HerbalMedicineRepository>();
+builder.Services.AddScoped<IYogaAsanaRepository, YogaAsanaRepository>();
+builder.Services.AddScoped<ITreatmentRepository, TreatmentRepository>();
+
 // Register services
 builder.Services.AddScoped<IBookService, BookService>();
 builder.Services.AddScoped<IBookChapterService, BookChapterService>();
@@ -70,6 +78,13 @@ builder.Services.AddScoped<IThesisService, ThesisService>();
 builder.Services.AddScoped<IContactService, ContactService>();
 builder.Services.AddScoped<INewsletterService, NewsletterService>();
 
+// Treatment System Services
+builder.Services.AddScoped<IPatientService, PatientService>();
+builder.Services.AddScoped<IPrakritiAssessmentService, PrakritiAssessmentService>();
+builder.Services.AddScoped<ITreatmentRecommendationService, TreatmentRecommendationService>();
+builder.Services.AddScoped<ITreatmentPlanService, TreatmentPlanService>();
+builder.Services.AddScoped<ITreatmentStatisticsService, TreatmentStatisticsService>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -77,7 +92,7 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "Vedic API",
         Version = "v1",
-        Description = "API for managing Vedic books and content",
+        Description = "API for managing Vedic books, content, and AI-enabled AYUSH Treatment Recommendations",
         Contact = new Microsoft.OpenApi.Models.OpenApiContact
         {
             Name = "Vedic AI Team"

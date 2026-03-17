@@ -66,6 +66,7 @@ builder.Services.AddScoped<IConditionRepository, ConditionRepository>();
 builder.Services.AddScoped<IHerbalMedicineRepository, HerbalMedicineRepository>();
 builder.Services.AddScoped<IYogaAsanaRepository, YogaAsanaRepository>();
 builder.Services.AddScoped<ITreatmentRepository, TreatmentRepository>();
+builder.Services.AddScoped<IJurisprudenceRepository, JurisprudenceRepository>();
 
 // Register services
 builder.Services.AddScoped<IBookService, BookService>();
@@ -84,6 +85,7 @@ builder.Services.AddScoped<IPrakritiAssessmentService, PrakritiAssessmentService
 builder.Services.AddScoped<ITreatmentRecommendationService, TreatmentRecommendationService>();
 builder.Services.AddScoped<ITreatmentPlanService, TreatmentPlanService>();
 builder.Services.AddScoped<ITreatmentStatisticsService, TreatmentStatisticsService>();
+builder.Services.AddScoped<IJurisprudenceService, JurisprudenceService>();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -109,6 +111,9 @@ app.UseSwaggerUI(c =>
 });
 
 app.UseHttpsRedirection();
+
+// Enable static files for document serving
+app.UseStaticFiles();
 
 // Enable CORS
 app.UseCors("AllowReactApp");

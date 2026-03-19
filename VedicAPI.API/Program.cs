@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using VedicAPI.API.Repositories;
 using VedicAPI.API.Repositories.Interfaces;
@@ -114,6 +115,17 @@ app.UseHttpsRedirection();
 
 // Enable static files for document serving
 app.UseStaticFiles();
+
+var contentRoot = app.Environment.ContentRootPath;
+var documentsPath = Path.Combine(contentRoot, "documents");
+if (Directory.Exists(documentsPath))
+{
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(documentsPath),
+        RequestPath = "/documents"
+    });
+}
 
 // Enable CORS
 app.UseCors("AllowReactApp");

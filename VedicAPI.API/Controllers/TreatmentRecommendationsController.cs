@@ -6,7 +6,7 @@ using VedicAPI.API.Services.Interfaces;
 namespace VedicAPI.API.Controllers
 {
     /// <summary>
-    /// Controller for Treatment recommendation operations
+    /// Controller for Treatment recommendation operations with feature-flagged AI Engine support
     /// </summary>
     [ApiController]
     [Route("api/treatment-recommendations")]
@@ -24,23 +24,45 @@ namespace VedicAPI.API.Controllers
         }
 
         /// <summary>
-        /// Generate treatment recommendations for a patient and condition
+        /// Get current feature-flagged AI system configuration & status
+        /// </summary>
+        [HttpGet("ai-status")]
+        [ProducesResponseType(typeof(ApiResponse<AiConfigDto>), StatusCodes.Status200OK)]
+        public IActionResult GetAiStatus()
+        {
+            var config = _recommendationService.GetAiConfig();
+            return Ok(ApiResponse<AiConfigDto>.SuccessResponse(config, "AI configuration retrieved successfully"));
+        }
+
+        /// <summary>
+        /// Generate treatment recommendations for a patient and condition (supports AI and fallback)
         /// </summary>
         [HttpPost("generate")]
         [ProducesResponseType(typeof(ApiResponse<TreatmentRecommendationDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> GenerateRecommendations([FromQuery] long patientId, [FromQuery] long conditionId)
+        public async Task<IActionResult> GenerateRecommendations(
+            [FromQuery] long patientId, 
+            [FromQuery] long conditionId,
+            [FromQuery] bool useAi = true,
+            [FromBody] AiRecommendationRequestDto? body = null)
         {
             try
             {
-                if (patientId <= 0 || conditionId <= 0)
+                var targetPatientId = patientId > 0 ? patientId : body?.PatientId ?? 0;
+                var targetConditionId = conditionId > 0 ? conditionId : body?.ConditionId ?? 0;
+                var targetUseAi = useAi && (body == null || body.UseAi);
+                var customNotes = body?.CustomClinicalNotes;
+                var customConditionName = body?.CustomConditionName;
+
+                if (targetPatientId <= 0 || (targetConditionId <= 0 && string.IsNullOrWhiteSpace(customConditionName)))
                 {
-                    return BadRequest(ApiResponse<object>.ErrorResponse(
-                        "Invalid patient ID or condition ID"));
+                    return BadRequest(ApiResponse<object>.ErrorResponse("Invalid patient ID or condition ID/name"));
                 }
 
-                var recommendations = await _recommendationService.GenerateRecommendationsAsync(patientId, conditionId);
+                var recommendations = await _recommendationService.GenerateRecommendationsAsync(
+                    targetPatientId, targetConditionId, targetUseAi, customNotes, customConditionName);
+
                 return Ok(ApiResponse<TreatmentRecommendationDto>.SuccessResponse(
                     recommendations,
                     "Treatment recommendations generated successfully"));
@@ -52,10 +74,46 @@ namespace VedicAPI.API.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating recommendations for patient {PatientId} and condition {ConditionId}",
-                    patientId, conditionId);
+                _logger.LogError(ex, "Error generating recommendations");
                 return StatusCode(500, ApiResponse<object>.ErrorResponse(
                     "An error occurred while generating recommendations",
+                    new List<string> { ex.Message }));
+            }
+        }
+
+        /// <summary>
+        /// Suggest adjustments to an existing treatment plan based on recorded outcomes using AI
+        /// </summary>
+        [HttpPost("suggest-adjustment")]
+        [ProducesResponseType(typeof(ApiResponse<TreatmentRecommendationDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> SuggestAdjustment([FromBody] SuggestAdjustmentRequestDto request)
+        {
+            try
+            {
+                if (request == null || request.PatientId <= 0 || request.ConditionId <= 0 || request.CurrentPlan == null)
+                {
+                    return BadRequest(ApiResponse<object>.ErrorResponse("Invalid request body. Patient ID, Condition ID, and Current Plan are required."));
+                }
+
+                var recommendation = await _recommendationService.SuggestAdjustmentAsync(
+                    request.PatientId, request.ConditionId, request.CurrentPlan, request.Outcomes);
+
+                if (recommendation == null)
+                {
+                    return StatusCode(500, ApiResponse<object>.ErrorResponse("AI service was unable to generate adjustment suggestions. Check settings and API key."));
+                }
+
+                return Ok(ApiResponse<TreatmentRecommendationDto>.SuccessResponse(
+                    recommendation,
+                    "Treatment plan adjustments suggested successfully"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error suggesting treatment adjustments");
+                return StatusCode(500, ApiResponse<object>.ErrorResponse(
+                    "An error occurred while suggesting adjustments",
                     new List<string> { ex.Message }));
             }
         }
@@ -95,7 +153,6 @@ namespace VedicAPI.API.Controllers
         /// </summary>
         [HttpGet("medicines")]
         [ProducesResponseType(typeof(ApiResponse<IEnumerable<HerbalMedicineDto>>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetHerbalMedicines(
             [FromQuery] string? searchTerm = null,
             [FromQuery] string? prakritiEffect = null)
@@ -121,7 +178,6 @@ namespace VedicAPI.API.Controllers
         /// </summary>
         [HttpGet("yoga")]
         [ProducesResponseType(typeof(ApiResponse<IEnumerable<YogaAsanaDto>>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetYogaAsanas(
             [FromQuery] string? category = null,
             [FromQuery] string? difficulty = null,
@@ -148,8 +204,6 @@ namespace VedicAPI.API.Controllers
         /// </summary>
         [HttpGet("dietary")]
         [ProducesResponseType(typeof(ApiResponse<IEnumerable<DietaryItemDto>>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> GetDietaryItems(
             [FromQuery] string prakriti,
             [FromQuery] string? category = null)

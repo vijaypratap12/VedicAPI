@@ -305,6 +305,10 @@ BEGIN
         CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
         UpdatedAt DATETIME2 NULL,
         IsActive BIT NOT NULL DEFAULT 1,
+        DoctorName NVARCHAR(100) NULL,
+        LastCheckupDate DATETIME2 NULL,
+        UpcomingCheckupDate DATETIME2 NULL,
+        RevisionHistory NVARCHAR(MAX) NULL,
         
         CONSTRAINT FK_TreatmentPlans_Patients FOREIGN KEY (PatientId) 
             REFERENCES PATIENTS(Id),

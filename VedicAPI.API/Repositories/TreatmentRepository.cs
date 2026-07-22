@@ -30,12 +30,18 @@ namespace VedicAPI.API.Repositories
             try
             {
                 using var connection = CreateConnection();
-                var result = await connection.QueryAsync<TreatmentPlan>(
+                using var multi = await connection.QueryMultipleAsync(
                     "sp_GetTreatmentPlanById",
                     new { TreatmentPlanId = id },
                     commandType: CommandType.StoredProcedure
                 );
-                return result.FirstOrDefault();
+                var plan = await multi.ReadFirstOrDefaultAsync<TreatmentPlan>();
+                if (plan != null)
+                {
+                    var outcomes = await multi.ReadAsync<TreatmentOutcome>();
+                    plan.Outcomes = outcomes.ToList();
+                }
+                return plan;
             }
             catch (Exception ex)
             {
@@ -81,7 +87,10 @@ namespace VedicAPI.API.Repositories
                         plan.Duration,
                         plan.ConfidenceScore,
                         plan.Explanation,
-                        plan.CreatedBy
+                        plan.CreatedBy,
+                        plan.DoctorName,
+                        plan.LastCheckupDate,
+                        plan.UpcomingCheckupDate
                     },
                     commandType: CommandType.StoredProcedure
                 );
@@ -108,6 +117,10 @@ namespace VedicAPI.API.Repositories
                         Duration = @Duration,
                         ConfidenceScore = @ConfidenceScore,
                         Explanation = @Explanation,
+                        DoctorName = @DoctorName,
+                        LastCheckupDate = @LastCheckupDate,
+                        UpcomingCheckupDate = @UpcomingCheckupDate,
+                        RevisionHistory = @RevisionHistory,
                         UpdatedAt = GETUTCDATE()
                     WHERE Id = @Id";
 

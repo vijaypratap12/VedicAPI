@@ -380,7 +380,10 @@ CREATE OR ALTER PROCEDURE sp_SaveTreatmentPlan
     @Duration NVARCHAR(100),
     @ConfidenceScore DECIMAL(5,2),
     @Explanation NVARCHAR(MAX),
-    @CreatedBy INT = NULL
+    @CreatedBy INT = NULL,
+    @DoctorName NVARCHAR(100) = NULL,
+    @LastCheckupDate DATETIME2 = NULL,
+    @UpcomingCheckupDate DATETIME2 = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -389,12 +392,12 @@ BEGIN
         INSERT INTO TREATMENTPLANS (
             PatientId, ConditionId, Prakriti, HerbalMedicines, YogaAsanas,
             DietaryRecommendations, LifestyleModifications, Duration,
-            ConfidenceScore, Explanation, CreatedBy
+            ConfidenceScore, Explanation, CreatedBy, DoctorName, LastCheckupDate, UpcomingCheckupDate
         )
         VALUES (
             @PatientId, @ConditionId, @Prakriti, @HerbalMedicines, @YogaAsanas,
             @DietaryRecommendations, @LifestyleModifications, @Duration,
-            @ConfidenceScore, @Explanation, @CreatedBy
+            @ConfidenceScore, @Explanation, @CreatedBy, @DoctorName, @LastCheckupDate, @UpcomingCheckupDate
         );
         
         DECLARE @TreatmentPlanId BIGINT = SCOPE_IDENTITY();
@@ -414,6 +417,9 @@ BEGIN
             tp.Duration,
             tp.ConfidenceScore,
             tp.Explanation,
+            tp.DoctorName,
+            tp.LastCheckupDate,
+            tp.UpcomingCheckupDate,
             tp.CreatedAt
         FROM TREATMENTPLANS tp
         INNER JOIN PATIENTS p ON tp.PatientId = p.Id
@@ -450,6 +456,9 @@ BEGIN
         tp.Prakriti,
         tp.Duration,
         tp.ConfidenceScore,
+        tp.DoctorName,
+        tp.LastCheckupDate,
+        tp.UpcomingCheckupDate,
         tp.CreatedAt,
         -- Get outcome if exists
         (SELECT TOP 1 EffectivenessScore 
@@ -679,6 +688,10 @@ BEGIN
         tp.Duration,
         tp.ConfidenceScore,
         tp.Explanation,
+        tp.DoctorName,
+        tp.LastCheckupDate,
+        tp.UpcomingCheckupDate,
+        tp.RevisionHistory,
         tp.CreatedAt,
         tp.UpdatedAt
     FROM TREATMENTPLANS tp

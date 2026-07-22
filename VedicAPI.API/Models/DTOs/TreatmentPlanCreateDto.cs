@@ -30,5 +30,8 @@ namespace VedicAPI.API.Models.DTOs
 
         public string? Explanation { get; set; }
         public int? CreatedBy { get; set; }
+        public string? DoctorName { get; set; }
+        public DateTime? LastCheckupDate { get; set; }
+        public DateTime? UpcomingCheckupDate { get; set; }
     }
 }

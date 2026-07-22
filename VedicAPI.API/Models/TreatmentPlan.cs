@@ -20,5 +20,11 @@ namespace VedicAPI.API.Models
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
         public bool IsActive { get; set; } = true;
+
+        public string? DoctorName { get; set; }
+        public DateTime? LastCheckupDate { get; set; }
+        public DateTime? UpcomingCheckupDate { get; set; }
+        public string? RevisionHistory { get; set; }
+        public System.Collections.Generic.List<TreatmentOutcome> Outcomes { get; set; } = new();
     }
 }

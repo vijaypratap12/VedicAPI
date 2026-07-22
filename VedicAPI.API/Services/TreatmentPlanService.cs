@@ -106,10 +106,37 @@ namespace VedicAPI.API.Services
                     return null;
                 }
 
+                var currentRevisions = new List<object>();
+                if (!string.IsNullOrEmpty(existingPlan.RevisionHistory))
+                {
+                    try
+                    {
+                        var parsed = System.Text.Json.JsonSerializer.Deserialize<List<object>>(existingPlan.RevisionHistory);
+                        if (parsed != null) currentRevisions.AddRange(parsed);
+                    }
+                    catch { /* ignore */ }
+                }
+
+                var historicalEntry = new
+                {
+                    Timestamp = existingPlan.UpdatedAt ?? existingPlan.CreatedAt,
+                    existingPlan.HerbalMedicines,
+                    existingPlan.YogaAsanas,
+                    existingPlan.DietaryRecommendations,
+                    existingPlan.LifestyleModifications,
+                    existingPlan.Duration,
+                    existingPlan.Explanation,
+                    existingPlan.DoctorName,
+                    existingPlan.LastCheckupDate,
+                    existingPlan.UpcomingCheckupDate
+                };
+                currentRevisions.Add(historicalEntry);
+
                 var updatedPlan = MapToEntity(planDto, id);
                 updatedPlan.CreatedAt = existingPlan.CreatedAt;
                 updatedPlan.PatientId = existingPlan.PatientId;
                 updatedPlan.ConditionId = existingPlan.ConditionId;
+                updatedPlan.RevisionHistory = System.Text.Json.JsonSerializer.Serialize(currentRevisions);
 
                 var success = await _treatmentRepository.UpdateTreatmentPlanAsync(updatedPlan);
                 if (success)
@@ -118,6 +145,12 @@ namespace VedicAPI.API.Services
                     var condition = await _conditionRepository.GetByIdAsync(updatedPlan.ConditionId);
 
                     _logger.LogInformation("Treatment plan with ID {PlanId} updated successfully", id);
+                    
+                    var fullUpdatedPlan = await _treatmentRepository.GetTreatmentPlanByIdAsync(id);
+                    if (fullUpdatedPlan != null)
+                    {
+                        return MapToResponseDto(fullUpdatedPlan, patient?.Name ?? "Unknown", condition?.Name ?? "Unknown");
+                    }
                     return MapToResponseDto(updatedPlan, patient?.Name ?? "Unknown", condition?.Name ?? "Unknown");
                 }
 
@@ -167,7 +200,23 @@ namespace VedicAPI.API.Services
                 ConfidenceScore = plan.ConfidenceScore,
                 Explanation = plan.Explanation,
                 CreatedAt = plan.CreatedAt,
-                UpdatedAt = plan.UpdatedAt
+                UpdatedAt = plan.UpdatedAt,
+                DoctorName = plan.DoctorName,
+                LastCheckupDate = plan.LastCheckupDate,
+                UpcomingCheckupDate = plan.UpcomingCheckupDate,
+                RevisionHistory = plan.RevisionHistory,
+                Outcomes = plan.Outcomes.Select(o => new TreatmentOutcomeDto
+                {
+                    TreatmentPlanId = o.TreatmentPlanId,
+                    PatientId = o.PatientId,
+                    EffectivenessScore = o.EffectivenessScore,
+                    SideEffects = o.SideEffects,
+                    PatientFeedback = o.PatientFeedback,
+                    DoctorNotes = o.DoctorNotes,
+                    FollowUpDate = o.FollowUpDate,
+                    RecordedBy = o.RecordedBy,
+                    RecordedAt = o.RecordedAt
+                }).ToList()
             };
         }
 
@@ -187,7 +236,10 @@ namespace VedicAPI.API.Services
                 Explanation = dto.Explanation,
                 CreatedBy = dto.CreatedBy,
                 IsActive = true,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                DoctorName = dto.DoctorName,
+                LastCheckupDate = dto.LastCheckupDate,
+                UpcomingCheckupDate = dto.UpcomingCheckupDate
             };
         }
 
@@ -203,7 +255,10 @@ namespace VedicAPI.API.Services
                 Duration = dto.Duration,
                 ConfidenceScore = dto.ConfidenceScore,
                 Explanation = dto.Explanation,
-                UpdatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow,
+                DoctorName = dto.DoctorName,
+                LastCheckupDate = dto.LastCheckupDate,
+                UpcomingCheckupDate = dto.UpcomingCheckupDate
             };
         }
 

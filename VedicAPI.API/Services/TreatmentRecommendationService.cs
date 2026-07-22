@@ -2,12 +2,13 @@ using System.Text.Json;
 using VedicAPI.API.Models;
 using VedicAPI.API.Models.DTOs;
 using VedicAPI.API.Repositories.Interfaces;
+using VedicAPI.API.Services.AI;
 using VedicAPI.API.Services.Interfaces;
 
 namespace VedicAPI.API.Services
 {
     /// <summary>
-    /// Service implementation for Treatment recommendation business logic
+    /// Service implementation for Treatment recommendation business logic with AI Engine support
     /// </summary>
     public class TreatmentRecommendationService : ITreatmentRecommendationService
     {
@@ -16,6 +17,8 @@ namespace VedicAPI.API.Services
         private readonly IHerbalMedicineRepository _herbalMedicineRepository;
         private readonly IYogaAsanaRepository _yogaAsanaRepository;
         private readonly ITreatmentRepository _treatmentRepository;
+        private readonly VedicAiClientFactory _aiClientFactory;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<TreatmentRecommendationService> _logger;
 
         public TreatmentRecommendationService(
@@ -24,6 +27,8 @@ namespace VedicAPI.API.Services
             IHerbalMedicineRepository herbalMedicineRepository,
             IYogaAsanaRepository yogaAsanaRepository,
             ITreatmentRepository treatmentRepository,
+            VedicAiClientFactory aiClientFactory,
+            IConfiguration configuration,
             ILogger<TreatmentRecommendationService> logger)
         {
             _patientRepository = patientRepository;
@@ -31,62 +36,126 @@ namespace VedicAPI.API.Services
             _herbalMedicineRepository = herbalMedicineRepository;
             _yogaAsanaRepository = yogaAsanaRepository;
             _treatmentRepository = treatmentRepository;
+            _aiClientFactory = aiClientFactory;
+            _configuration = configuration;
             _logger = logger;
         }
 
-        public async Task<TreatmentRecommendationDto> GenerateRecommendationsAsync(long patientId, long conditionId)
+        public AiConfigDto GetAiConfig()
+        {
+            var enabled = _configuration.GetValue<bool>("AiSettings:Enabled", true);
+            var provider = _configuration.GetValue<string>("AiSettings:Provider") ?? "Gemini";
+            var model = _configuration.GetValue<string>("AiSettings:ModelName") ?? "gemini-1.5-flash";
+            var enableFallback = _configuration.GetValue<bool>("AiSettings:EnableFallback", true);
+
+            var features = new Dictionary<string, bool>
+            {
+                { "Recommendations", _configuration.GetValue<bool>("AiSettings:Features:Recommendations", true) },
+                { "SushrutaAssistant", _configuration.GetValue<bool>("AiSettings:Features:SushrutaAssistant", false) },
+                { "ResearchAnalyzer", _configuration.GetValue<bool>("AiSettings:Features:ResearchAnalyzer", false) }
+            };
+
+            return new AiConfigDto
+            {
+                Enabled = enabled,
+                Provider = provider,
+                ModelName = model,
+                EnableFallback = enableFallback,
+                Features = features
+            };
+        }
+
+        public async Task<TreatmentRecommendationDto> GenerateRecommendationsAsync(
+            long patientId, 
+            long conditionId, 
+            bool useAi = true, 
+            string? customNotes = null,
+            string? customConditionName = null)
         {
             try
             {
-                // Get patient details
                 var patient = await _patientRepository.GetByIdAsync(patientId);
-                if (patient == null)
+                if (patient == null) throw new ArgumentException($"Patient with ID {patientId} not found");
+
+                Condition condition;
+                if (conditionId <= 0)
                 {
-                    throw new ArgumentException($"Patient with ID {patientId} not found");
+                    if (string.IsNullOrWhiteSpace(customConditionName))
+                    {
+                        throw new ArgumentException("Condition ID or custom condition name must be provided");
+                    }
+
+                    var trimmedName = customConditionName.Trim();
+                    var existing = await _conditionRepository.SearchAsync(trimmedName);
+                    var match = existing.FirstOrDefault(c => c.Name.Equals(trimmedName, StringComparison.OrdinalIgnoreCase));
+                    if (match != null)
+                    {
+                        condition = match;
+                    }
+                    else
+                    {
+                        var newCondition = new Condition
+                        {
+                            Name = trimmedName,
+                            SanskritName = "Vyadhi",
+                            Category = "General",
+                            Description = "Custom patient-reported condition created via treatment recommendations workflow.",
+                            CommonSymptoms = "Custom symptoms",
+                            AffectedDoshas = "Tridosha",
+                            Severity = "Moderate",
+                            IsActive = true
+                        };
+                        var newId = await _conditionRepository.CreateAsync(newCondition);
+                        newCondition.Id = newId;
+                        condition = newCondition;
+                    }
+                }
+                else
+                {
+                    var cond = await _conditionRepository.GetByIdAsync(conditionId);
+                    if (cond == null) throw new ArgumentException($"Condition with ID {conditionId} not found");
+                    condition = cond;
                 }
 
-                // Get condition details
-                var condition = await _conditionRepository.GetByIdAsync(conditionId);
-                if (condition == null)
-                {
-                    throw new ArgumentException($"Condition with ID {conditionId} not found");
-                }
-
-                // Check if patient has Prakriti assessment
                 var prakriti = patient.Prakriti ?? "All";
                 var hasPrakritiAssessment = !string.IsNullOrEmpty(patient.Prakriti);
 
-                // Get recommended medicines
-                var medicines = await _treatmentRepository.GetRecommendedMedicinesAsync(conditionId, prakriti);
-                var medicineList = medicines.Select(MapMedicineToDto).ToList();
-
-                // Get recommended yoga asanas
-                var yogaAsanas = await _treatmentRepository.GetRecommendedYogaAsanasAsync(conditionId, prakriti);
-                var yogaList = yogaAsanas.Select(MapYogaToDto).ToList();
-
-                // Get dietary recommendations
+                // Candidate items from DB
+                var medicines = await _treatmentRepository.GetRecommendedMedicinesAsync(condition.Id, prakriti);
+                var yogaAsanas = await _treatmentRepository.GetRecommendedYogaAsanasAsync(condition.Id, prakriti);
                 var dietaryItems = await _treatmentRepository.GetDietaryItemsByPrakritiAsync(prakriti);
+
+                var aiConfig = GetAiConfig();
+
+                // Check Feature Flag for AI
+                if (useAi && aiConfig.Enabled && aiConfig.Features.GetValueOrDefault("Recommendations", true))
+                {
+                    var provider = aiConfig.Provider;
+                    var apiKey = _configuration.GetValue<string>("AiSettings:ApiKey") ?? "";
+                    var modelName = aiConfig.ModelName;
+
+                    var aiClient = _aiClientFactory.GetClient(provider);
+                    if (aiClient != null)
+                    {
+                        _logger.LogInformation("Attempting AI recommendation generation using provider {Provider}...", provider);
+                        var aiRecommendation = await aiClient.GenerateClinicalRecommendationAsync(
+                            patient, condition, medicines, yogaAsanas, dietaryItems, apiKey, modelName, customNotes);
+
+                        if (aiRecommendation != null)
+                        {
+                            return aiRecommendation;
+                        }
+                        _logger.LogWarning("AI Recommendation returned null. Falling back to DB rule calculation.");
+                    }
+                }
+
+                // Rule-Based EF Core Calculation (Fallback / Default)
+                var medicineList = medicines.Select(MapMedicineToDto).ToList();
+                var yogaList = yogaAsanas.Select(MapYogaToDto).ToList();
                 var dietaryList = dietaryItems.Select(MapDietaryToDto).ToList();
-
-                // Generate lifestyle modifications based on condition
                 var lifestyleModifications = GenerateLifestyleModifications(condition, prakriti);
-
-                // Calculate confidence score
-                var confidenceScore = CalculateConfidenceScore(
-                    hasPrakritiAssessment,
-                    medicineList.Count,
-                    yogaList.Count,
-                    patient.Age
-                );
-
-                // Generate explanation
-                var explanation = GenerateExplanation(
-                    patient,
-                    condition,
-                    medicineList.Count,
-                    yogaList.Count,
-                    hasPrakritiAssessment
-                );
+                var confidenceScore = CalculateConfidenceScore(hasPrakritiAssessment, medicineList.Count, yogaList.Count, patient.Age);
+                var explanation = GenerateExplanation(patient, condition, medicineList.Count, yogaList.Count, hasPrakritiAssessment);
 
                 return new TreatmentRecommendationDto
                 {
@@ -100,315 +169,134 @@ namespace VedicAPI.API.Services
                     RecommendedDietaryItems = dietaryList,
                     LifestyleModifications = lifestyleModifications,
                     ConfidenceScore = confidenceScore,
-                    Explanation = explanation
+                    Explanation = explanation,
+                    IsAiGenerated = false,
+                    AiModelUsed = "Rule-Based Database Engine",
+                    ClinicalRationale = "Recommendation derived from classical database mapping rules.",
+                    PathyaList = dietaryList.Select(d => d.FoodName).ToList(),
+                    ApathyaList = new List<string> { "Heavy, unctuous, or processed foods incompatible with condition" },
+                    Warnings = new List<string> { "Consult practitioner if symptoms persist." }
                 };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating recommendations for patient {PatientId} and condition {ConditionId}",
-                    patientId, conditionId);
+                _logger.LogError(ex, "Error generating recommendations for patient {PatientId} and condition {ConditionId}", patientId, conditionId);
                 throw;
             }
         }
 
         public async Task<IEnumerable<ConditionDto>> SearchConditionsAsync(string searchTerm, string? category = null)
         {
-            try
-            {
-                var conditions = await _conditionRepository.SearchAsync(searchTerm, category);
-                return conditions.Select(MapConditionToDto);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in SearchConditionsAsync with term {SearchTerm}", searchTerm);
-                throw;
-            }
+            var conditions = await _conditionRepository.SearchAsync(searchTerm, category);
+            return conditions.Select(MapConditionToDto);
         }
 
-        public async Task<IEnumerable<HerbalMedicineDto>> GetHerbalMedicinesAsync(
-            string? searchTerm = null,
-            string? prakritiEffect = null)
+        public async Task<IEnumerable<HerbalMedicineDto>> GetHerbalMedicinesAsync(string? searchTerm = null, string? prakritiEffect = null)
         {
-            try
-            {
-                IEnumerable<HerbalMedicine> medicines;
-
-                if (!string.IsNullOrEmpty(searchTerm))
-                {
-                    medicines = await _herbalMedicineRepository.SearchAsync(searchTerm);
-                }
-                else if (!string.IsNullOrEmpty(prakritiEffect))
-                {
-                    medicines = await _herbalMedicineRepository.GetByPrakritiEffectAsync(prakritiEffect);
-                }
-                else
-                {
-                    medicines = await _herbalMedicineRepository.GetAllAsync();
-                }
-
-                return medicines.Select(MapMedicineToDto);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in GetHerbalMedicinesAsync");
-                throw;
-            }
+            IEnumerable<HerbalMedicine> medicines;
+            if (!string.IsNullOrEmpty(searchTerm)) medicines = await _herbalMedicineRepository.SearchAsync(searchTerm);
+            else if (!string.IsNullOrEmpty(prakritiEffect)) medicines = await _herbalMedicineRepository.GetByPrakritiEffectAsync(prakritiEffect);
+            else medicines = await _herbalMedicineRepository.GetAllAsync();
+            return medicines.Select(MapMedicineToDto);
         }
 
-        public async Task<IEnumerable<YogaAsanaDto>> GetYogaAsanasAsync(
-            string? category = null,
-            string? difficulty = null,
-            string? prakritiEffect = null)
+        public async Task<IEnumerable<YogaAsanaDto>> GetYogaAsanasAsync(string? category = null, string? difficulty = null, string? prakritiEffect = null)
         {
-            try
-            {
-                IEnumerable<YogaAsana> asanas;
-
-                if (!string.IsNullOrEmpty(category))
-                {
-                    asanas = await _yogaAsanaRepository.GetByCategoryAsync(category);
-                }
-                else if (!string.IsNullOrEmpty(difficulty))
-                {
-                    asanas = await _yogaAsanaRepository.GetByDifficultyAsync(difficulty);
-                }
-                else if (!string.IsNullOrEmpty(prakritiEffect))
-                {
-                    asanas = await _yogaAsanaRepository.GetByPrakritiEffectAsync(prakritiEffect);
-                }
-                else
-                {
-                    asanas = await _yogaAsanaRepository.GetAllAsync();
-                }
-
-                return asanas.Select(MapYogaToDto);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in GetYogaAsanasAsync");
-                throw;
-            }
+            IEnumerable<YogaAsana> asanas;
+            if (!string.IsNullOrEmpty(category)) asanas = await _yogaAsanaRepository.GetByCategoryAsync(category);
+            else if (!string.IsNullOrEmpty(difficulty)) asanas = await _yogaAsanaRepository.GetByDifficultyAsync(difficulty);
+            else if (!string.IsNullOrEmpty(prakritiEffect)) asanas = await _yogaAsanaRepository.GetByPrakritiEffectAsync(prakritiEffect);
+            else asanas = await _yogaAsanaRepository.GetAllAsync();
+            return asanas.Select(MapYogaToDto);
         }
 
         public async Task<IEnumerable<DietaryItemDto>> GetDietaryItemsAsync(string prakriti, string? category = null)
         {
-            try
-            {
-                var items = await _treatmentRepository.GetDietaryItemsByPrakritiAsync(prakriti, category);
-                return items.Select(MapDietaryToDto);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in GetDietaryItemsAsync for Prakriti {Prakriti}", prakriti);
-                throw;
-            }
+            var items = await _treatmentRepository.GetDietaryItemsByPrakritiAsync(prakriti, category);
+            return items.Select(MapDietaryToDto);
         }
 
         #region Helper Methods
 
-        private decimal CalculateConfidenceScore(
-            bool hasPrakritiAssessment,
-            int medicineCount,
-            int yogaCount,
-            int patientAge)
+        private decimal CalculateConfidenceScore(bool hasPrakritiAssessment, int medicineCount, int yogaCount, int patientAge)
         {
-            decimal score = 60m; // Base score
-
-            // Prakriti assessment completed
-            if (hasPrakritiAssessment)
-            {
-                score += 15m;
-            }
-
-            // Multiple treatment options available
-            if (medicineCount >= 3 && yogaCount >= 3)
-            {
-                score += 10m;
-            }
-            else if (medicineCount >= 2 || yogaCount >= 2)
-            {
-                score += 5m;
-            }
-
-            // Historical success rate (simulated - in production, query from outcomes)
+            decimal score = 60m;
+            if (hasPrakritiAssessment) score += 15m;
+            if (medicineCount >= 3 && yogaCount >= 3) score += 10m;
+            else if (medicineCount >= 2 || yogaCount >= 2) score += 5m;
             score += 10m;
-
-            // Patient demographics match (age-appropriate recommendations)
-            if (patientAge >= 18 && patientAge <= 70)
-            {
-                score += 5m;
-            }
-
+            if (patientAge >= 18 && patientAge <= 70) score += 5m;
             return Math.Min(score, 100m);
         }
 
-        private string GenerateExplanation(
-            Patient patient,
-            Condition condition,
-            int medicineCount,
-            int yogaCount,
-            bool hasPrakritiAssessment)
+        private string GenerateExplanation(Patient patient, Condition condition, int medicineCount, int yogaCount, bool hasPrakritiAssessment)
         {
             var explanation = $"Treatment plan for {condition.Name}";
-
-            if (hasPrakritiAssessment)
-            {
-                explanation += $" personalized for {patient.Prakriti} Prakriti constitution. ";
-            }
-            else
-            {
-                explanation += " with general recommendations. ";
-            }
-
-            explanation += $"This plan includes {medicineCount} herbal medicine(s) and {yogaCount} yoga practice(s) ";
-            explanation += "selected based on traditional Ayurvedic principles and proven efficacy. ";
-
-            if (hasPrakritiAssessment)
-            {
-                explanation += $"The recommendations are specifically chosen to balance your {patient.Prakriti} dosha ";
-                explanation += "and address the root cause of the condition. ";
-            }
-
-            explanation += "Regular practice and adherence to the treatment plan is essential for optimal results. ";
-            explanation += "Please consult with an Ayurvedic practitioner before starting any new treatment.";
-
+            if (hasPrakritiAssessment) explanation += $" personalized for {patient.Prakriti} Prakriti constitution. ";
+            else explanation += " with general recommendations. ";
+            explanation += $"This plan includes {medicineCount} herbal medicine(s) and {yogaCount} yoga practice(s) selected based on traditional Ayurvedic principles.";
             return explanation;
         }
 
         private List<string> GenerateLifestyleModifications(Condition condition, string prakriti)
         {
-            var modifications = new List<string>();
+            var modifications = new List<string>
+            {
+                "Maintain regular sleep schedule (10 PM - 6 AM)",
+                "Practice stress management techniques daily",
+                "Stay well hydrated with warm water"
+            };
 
-            // General recommendations
-            modifications.Add("Maintain regular sleep schedule (10 PM - 6 AM)");
-            modifications.Add("Practice stress management techniques daily");
-            modifications.Add("Stay well hydrated (drink 2-3 liters of water daily)");
-
-            // Condition-specific recommendations
-            if (condition.Name.Contains("Kidney") || condition.Name.Contains("Urinary"))
-            {
-                modifications.Add("Avoid holding urine for long periods");
-                modifications.Add("Reduce salt and calcium-rich foods");
-                modifications.Add("Drink plenty of water throughout the day");
-            }
-            else if (condition.Name.Contains("Obesity"))
-            {
-                modifications.Add("Regular exercise for 45 minutes daily");
-                modifications.Add("Avoid daytime sleep");
-                modifications.Add("Eat light dinner before 7 PM");
-                modifications.Add("Practice portion control");
-            }
-            else if (condition.Name.Contains("Hypertension"))
-            {
-                modifications.Add("Reduce salt intake significantly");
-                modifications.Add("Practice meditation for 20 minutes daily");
-                modifications.Add("Avoid anger and stressful situations");
-                modifications.Add("Regular monitoring of blood pressure");
-            }
-            else if (condition.Name.Contains("Diabetes"))
-            {
-                modifications.Add("Regular exercise and physical activity");
-                modifications.Add("Avoid refined sugars and processed foods");
-                modifications.Add("Eat small, frequent meals");
-                modifications.Add("Regular blood sugar monitoring");
-            }
-
-            // Prakriti-specific recommendations
-            if (prakriti.Contains("Vata"))
-            {
-                modifications.Add("Maintain routine and regularity");
-                modifications.Add("Keep warm and avoid cold, windy weather");
-            }
-            else if (prakriti.Contains("Pitta"))
-            {
-                modifications.Add("Avoid excessive heat and sun exposure");
-                modifications.Add("Practice cooling activities");
-            }
-            else if (prakriti.Contains("Kapha"))
-            {
-                modifications.Add("Stay active and avoid sedentary lifestyle");
-                modifications.Add("Prefer warm, light foods");
-            }
+            if (prakriti.Contains("Vata")) modifications.Add("Keep warm and maintain daily routine regularity");
+            else if (prakriti.Contains("Pitta")) modifications.Add("Avoid excessive heat and intense sun exposure");
+            else if (prakriti.Contains("Kapha")) modifications.Add("Stay physically active and avoid sedentary lifestyle");
 
             return modifications;
         }
 
-        #endregion
+        private static ConditionDto MapConditionToDto(Condition c) => new() { Id = c.Id, Name = c.Name, SanskritName = c.SanskritName, Category = c.Category, Description = c.Description };
+        private static HerbalMedicineDto MapMedicineToDto(HerbalMedicine m) => new() { Id = m.Id, CommonName = m.CommonName, SanskritName = m.SanskritName, ScientificName = m.ScientificName, Dosage = m.Dosage };
+        private static YogaAsanaDto MapYogaToDto(YogaAsana a) => new() { Id = a.Id, AsanaName = a.AsanaName, SanskritName = a.SanskritName, Duration = a.Duration, Difficulty = a.Difficulty };
+        private static DietaryItemDto MapDietaryToDto(DietaryItem i) => new() { Id = i.Id, FoodName = i.FoodName, Category = i.Category, Benefits = i.Benefits };
 
-        #region Mapping Methods
-
-        private static ConditionDto MapConditionToDto(Condition condition)
+        public async Task<TreatmentRecommendationDto?> SuggestAdjustmentAsync(
+            long patientId, 
+            long conditionId, 
+            TreatmentPlanResponseDto currentPlan, 
+            IEnumerable<TreatmentOutcomeDto> outcomes)
         {
-            return new ConditionDto
+            try
             {
-                Id = condition.Id,
-                Name = condition.Name,
-                SanskritName = condition.SanskritName,
-                Category = condition.Category,
-                Description = condition.Description,
-                CommonSymptoms = condition.CommonSymptoms,
-                AffectedDoshas = condition.AffectedDoshas,
-                Severity = condition.Severity
-            };
-        }
+                var patient = await _patientRepository.GetByIdAsync(patientId);
+                if (patient == null) throw new ArgumentException($"Patient with ID {patientId} not found");
 
-        private static HerbalMedicineDto MapMedicineToDto(HerbalMedicine medicine)
-        {
-            return new HerbalMedicineDto
-            {
-                Id = medicine.Id,
-                CommonName = medicine.CommonName,
-                SanskritName = medicine.SanskritName,
-                ScientificName = medicine.ScientificName,
-                HindiName = medicine.HindiName,
-                Properties = medicine.Properties,
-                Indications = medicine.Indications,
-                Dosage = medicine.Dosage,
-                Contraindications = medicine.Contraindications,
-                SideEffects = medicine.SideEffects,
-                ImageUrl = medicine.ImageUrl,
-                VataEffect = medicine.VataEffect,
-                PittaEffect = medicine.PittaEffect,
-                KaphaEffect = medicine.KaphaEffect
-            };
-        }
+                var condition = await _conditionRepository.GetByIdAsync(conditionId);
+                if (condition == null) throw new ArgumentException($"Condition with ID {conditionId} not found");
 
-        private static YogaAsanaDto MapYogaToDto(YogaAsana asana)
-        {
-            return new YogaAsanaDto
-            {
-                Id = asana.Id,
-                AsanaName = asana.AsanaName,
-                SanskritName = asana.SanskritName,
-                Category = asana.Category,
-                Benefits = asana.Benefits,
-                Duration = asana.Duration,
-                Difficulty = asana.Difficulty,
-                Instructions = asana.Instructions,
-                Precautions = asana.Precautions,
-                ImageUrl = asana.ImageUrl,
-                VideoUrl = asana.VideoUrl,
-                VataEffect = asana.VataEffect,
-                PittaEffect = asana.PittaEffect,
-                KaphaEffect = asana.KaphaEffect
-            };
-        }
+                var aiConfig = GetAiConfig();
 
-        private static DietaryItemDto MapDietaryToDto(DietaryItem item)
-        {
-            return new DietaryItemDto
+                if (aiConfig.Enabled && aiConfig.Features.GetValueOrDefault("Recommendations", true))
+                {
+                    var provider = aiConfig.Provider;
+                    var apiKey = _configuration.GetValue<string>("AiSettings:ApiKey") ?? "";
+                    var modelName = aiConfig.ModelName;
+
+                    var aiClient = _aiClientFactory.GetClient(provider);
+                    if (aiClient != null)
+                    {
+                        _logger.LogInformation("Attempting AI adjustment suggestion using provider {Provider}...", provider);
+                        return await aiClient.SuggestAdjustmentAsync(patient, condition, currentPlan, outcomes, apiKey, modelName);
+                    }
+                }
+
+                _logger.LogWarning("AI Service is disabled or client could not be loaded. Cannot suggest adjustment.");
+                return null;
+            }
+            catch (Exception ex)
             {
-                Id = item.Id,
-                FoodName = item.FoodName,
-                Category = item.Category,
-                VataEffect = item.VataEffect,
-                PittaEffect = item.PittaEffect,
-                KaphaEffect = item.KaphaEffect,
-                Properties = item.Properties,
-                Benefits = item.Benefits,
-                Rasa = item.Rasa,
-                Virya = item.Virya
-            };
+                _logger.LogError(ex, "Error suggesting plan adjustments for patient {PatientId} and plan {PlanId}", patientId, currentPlan.Id);
+                throw;
+            }
         }
 
         #endregion

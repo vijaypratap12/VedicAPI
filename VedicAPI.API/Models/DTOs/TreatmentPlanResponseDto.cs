@@ -20,5 +20,10 @@ namespace VedicAPI.API.Models.DTOs
         public string? Explanation { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        public string? DoctorName { get; set; }
+        public DateTime? LastCheckupDate { get; set; }
+        public DateTime? UpcomingCheckupDate { get; set; }
+        public string? RevisionHistory { get; set; }
+        public System.Collections.Generic.List<TreatmentOutcomeDto> Outcomes { get; set; } = new();
     }
 }

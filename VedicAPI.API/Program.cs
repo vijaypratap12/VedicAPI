@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using VedicAPI.API.Repositories;
 using VedicAPI.API.Repositories.Interfaces;
 using VedicAPI.API.Services;
+using VedicAPI.API.Services.AI;
 using VedicAPI.API.Services.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -83,6 +84,14 @@ builder.Services.AddScoped<INewsletterService, NewsletterService>();
 // Treatment System Services
 builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IPrakritiAssessmentService, PrakritiAssessmentService>();
+
+// Register Modular AI Clients & Factory
+builder.Services.AddHttpClient<GeminiAiClient>();
+builder.Services.AddHttpClient<GroqAiClient>();
+builder.Services.AddTransient<IVedicAiClient, GeminiAiClient>();
+builder.Services.AddTransient<IVedicAiClient, GroqAiClient>();
+builder.Services.AddSingleton<VedicAiClientFactory>();
+
 builder.Services.AddScoped<ITreatmentRecommendationService, TreatmentRecommendationService>();
 builder.Services.AddScoped<ITreatmentPlanService, TreatmentPlanService>();
 builder.Services.AddScoped<ITreatmentStatisticsService, TreatmentStatisticsService>();

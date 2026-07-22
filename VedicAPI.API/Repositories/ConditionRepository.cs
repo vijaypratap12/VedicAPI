@@ -101,5 +101,23 @@ namespace VedicAPI.API.Repositories
                 throw;
             }
         }
+
+        public async Task<long> CreateAsync(Condition condition)
+        {
+            try
+            {
+                using var connection = CreateConnection();
+                var sql = @"
+                    INSERT INTO CONDITIONS (Name, SanskritName, Category, Description, CommonSymptoms, AffectedDoshas, Severity, IsActive, CreatedAt)
+                    VALUES (@Name, @SanskritName, @Category, @Description, @CommonSymptoms, @AffectedDoshas, @Severity, @IsActive, GETUTCDATE());
+                    SELECT CAST(SCOPE_IDENTITY() as BIGINT);";
+                return await connection.QuerySingleAsync<long>(sql, condition);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating condition {Name}", condition.Name);
+                throw;
+            }
+        }
     }
 }

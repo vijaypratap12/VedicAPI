@@ -21,5 +21,6 @@ namespace VedicAPI.API.Models.DTOs
         public string? DoctorNotes { get; set; }
         public DateTime? FollowUpDate { get; set; }
         public int? RecordedBy { get; set; }
+        public DateTime? RecordedAt { get; set; }
     }
 }
